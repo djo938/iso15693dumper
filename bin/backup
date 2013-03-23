@@ -1,0 +1,2 @@
+tar -pczf backup.tar.gz /root/nmea/ /root/dumper/ /root/pairing /root/datasharing
+

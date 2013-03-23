@@ -1,0 +1,6 @@
+#!/bin/sh
+rm -f /root/pairing/log/*.log
+rm -f /root/nmea/log/*.log
+rm -f /root/dumper/log/*.log
+rm -f /root/datasharing/log/*.log
+

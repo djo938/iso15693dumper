@@ -1,0 +1,2 @@
+tar -pczf backuplog.tar.gz /root/nmea/log/ /root/dumper/log/ /root/pairing/log /root/datasharing/log/
+
