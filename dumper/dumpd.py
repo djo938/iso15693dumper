@@ -1,24 +1,28 @@
 #!/usr/bin/python
 
 import logging, os, sys, time
-import time
+import datetime
 from daemon import Daemon
 import Pyro4
 
 #MAINREP = "/home/djo/Bureau/dumpDaemon/dump/"
 MAINREP = "/root/dumper/"
+DEBUG = False
 
-#WARNING, the deameon doesn't read the other first sector if these don't exist
-firstSectorToRead = [0x1c,0x1d,0x1e]
+#TODO WARNING, the deameon doesn't read the other first sector if these don't exist
+firstSectorToRead = [] #[0x1c,0x1d,0x1e]
 
 rangeToRead = []
 rangeToRead.extend(firstSectorToRead)
 for i in range(0,0x40):
     if not i in firstSectorToRead:
         rangeToRead.append(i)
-#TODO BUG doesn't read the first sector if firstSectorToRead don't exist
 
 proxy = None
+nextId = -1
+
+def getLogNextId():
+    return len([name for name in os.listdir(MAINREP+"log/") if os.path.isfile(MAINREP+"log/"+name)])
 
 def getPosition():
     global proxy
@@ -52,7 +56,7 @@ def printHexaTable(l, sep=" "):
     if sep == "":
         return ''.join( [ "%02X"%x for x in l ] ).strip()
     else:
-        return ''.join( [ "%02X"%x+sep for x in l ] ).strip()[:-1]
+        return ''.join( [ "%02X"%x+sep for x in l ] ).strip()
 
 
 def convertNN(NN):
@@ -188,14 +192,25 @@ def dumpSkipass(con):
         return
 
     #build file name
-    t = time.localtime()
-
-    f = file(MAINREP+"dump/dump_"+printHexaTable(uid,"")+"_"+str(t.tm_hour)+"h"+str(t.tm_min)+"s"+str(t.tm_sec)+".txt","w")
+    dtime = datetime.datetime.now()
+    
+    #TODO generate a unique id to dump
+    
+    fileName = MAINREP+"dump/dump_"+printHexaTable(uid,"")+"_"+str(dtime).replace(" ","_").replace(":","_").replace(".","_")+".txt"
+    f = file(fileName,"w")
     logging.info("card uid : "+printHexaTable(uid,":"))
+    logging.info("dump file name : "+fileName)
     
     try:
+        #write datetime
+        f.write("Datetime : "+str(dtime)+"\n")
+                
         #append GPS data
-        f.write("Position : "+getPosition()+"\nAltitude : "+getAltitude()+"\nHeure : "+str(t.tm_hour)+"h"+str(t.tm_min)+"s"+str(t.tm_sec)+"\n")
+        f.write("Position : "+getPosition()+"\nAltitude : "+getAltitude()+"\n")
+        
+        #append log id
+        f.write("Dump log id : "+str(nextId)+"\n")
+        f.write("Gps log id : "+str(proxy.getGpsLogId())+"\n")
 
         #compute UID and decimal UID
         uid_type = (uid[0] << 16) + (uid[1] << 8) + uid[2]
@@ -206,8 +221,6 @@ def dumpSkipass(con):
 
         f.write("UID : " + printHexaTable(uid)+"\nUID : " + str(uid_dec)+"\n")
         uid.reverse()
-
-        #TODO write process ID
 
         #read pix
         data, sw1, sw2 = con.transmit( [0xFF, 0xCA, 0xF1, 0x00, 0x00])
@@ -275,10 +288,15 @@ def dumpSkipass(con):
  
 class MyDaemon(Daemon.Daemon):
     def run(self):
+        global nextId
         #starting loggin
-        #logging.basicConfig(format='%(asctime)s %(message)s')
-        logging.basicConfig(format='%(asctime)s %(message)s', filename=MAINREP+'log/skipassDumper'+str(os.getpid())+'.log',level=logging.DEBUG)
-        logging.info("server start")
+
+        nextId = getLogNextId()
+        if DEBUG:
+            logging.basicConfig(format='%(asctime)s %(message)s',level=logging.DEBUG)
+        else:
+            logging.basicConfig(format='%(asctime)s %(message)s', filename=MAINREP+'log/skipassDumper_'+str(nextId)+"_"+str(os.getpid())+'.log',level=logging.DEBUG)
+        logging.info("server start, log id : "+str(nextId))
         #put this here, because the context loading must be in in the same process than the run method
         logging.info("smartcard loading")
         while True: #sometime, pcscd take time to start
@@ -331,6 +349,7 @@ if __name__ == "__main__":
         elif 'restart' == sys.argv[1]:
             daemon.restart()
         elif 'test' == sys.argv[1]:
+            DEBUG = True
             daemon.run()
         else:
             print "Unknown command"

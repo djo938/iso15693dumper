@@ -7,10 +7,14 @@ import Pyro4
 #MAINREP = "/home/djo/Bureau/dumpDaemon/dump/"
 MAINREP = "/root/datasharing/"
 
+def getLogNextId():
+    return len([name for name in os.listdir(MAINREP+"log/") if os.path.isfile(MAINREP+"log/"+name)])
+
 class GpsData(object):
     def __init__(self):
-        self.position = "unknown"
-        self.altitude = "unknown"
+        self.position = "0000.0000N 00000.0000E, fix time : 000000"
+        self.altitude = "0.0 M, fix time : 000000"
+        self.gpsLogId = -1
         
     def setAltitude(self,altitude):
         self.altitude = altitude
@@ -24,9 +28,15 @@ class GpsData(object):
     def getPosition(self):
         return self.position
 
+    def getGpsLogId(self):
+        return self.gpsLogId
+
+    def setGpsLogId(self,gpsLogId):
+        self.gpsLogId = gpsLogId
+
 class MyDaemon(Daemon.Daemon):
     def run(self):
-        logging.basicConfig(format='%(asctime)s %(message)s', filename=MAINREP+'log/sharingDaemon'+str(os.getpid())+'.log',level=logging.DEBUG)
+        logging.basicConfig(format='%(asctime)s %(message)s', filename=MAINREP+'log/sharingDaemon_'+str(getLogNextId())+"_"+str(os.getpid())+'.log',level=logging.DEBUG)
         while True:
             try:
                 gpsdata=GpsData()

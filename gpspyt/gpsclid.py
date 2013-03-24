@@ -9,21 +9,28 @@ MAINREP = "/root/gpspyt/"
 DEBUG = False
 proxy = None
 gpsd = None #seting the global variable
+nextId = -1
+
+def getLogNextId():
+    return len([name for name in os.listdir(MAINREP+"log/") if os.path.isfile(MAINREP+"log/"+name)])
 
 class MyDaemon(Daemon.Daemon):
     def run(self):
-        #if DEBUG:
-        #    logging.basicConfig(format='%(asctime)s %(message)s')
-        #else:    
-        logging.basicConfig(format='%(asctime)s %(message)s', filename=MAINREP+'log/gpsclid'+str(os.getpid())+'.log',level=logging.DEBUG)        
-        logging.info("gps client start")
+        global nextId
+        
+        nextId = getLogNextId()
+        if DEBUG:
+            logging.basicConfig(format='%(asctime)s %(message)s',level=logging.DEBUG)
+        else:    
+            logging.basicConfig(format='%(asctime)s %(message)s', filename=MAINREP+'log/gpsclid_'+str(nextId)+"_"+str(os.getpid())+'.log',level=logging.INFO)        
+        logging.info("gps client start, log id : "+str(nextId))
         
         while True:
             try:
                 gpsd = gps(mode=WATCH_ENABLE) #starting the stream of info
                 proxy=Pyro4.Proxy("PYRONAME:dump.gpsdata")
                 timeSet = False
-                
+                proxy.setGpsLogId(nextId)
                 while True:
                     gpsd.next() #this will continue to loop and grab EACH set of gpsd info to clear the buffer
                     
@@ -51,7 +58,7 @@ class MyDaemon(Daemon.Daemon):
                         proxy.setAltitude(altitude)
                         logging.info("altitude : "+altitude)
                     
-                    #TODO sset time
+                    #sset time
                     if not timeSet and utcdatetime != None:
                         newDate = "date -s \""+str(utcdatetime.day)+" "+utcdatetime.strftime("%b")+" "+str(utcdatetime.year)+" "+fixtime[0:2]+":"+fixtime[2:4]+":"+fixtime[4:6]+"\""
                         logging.info(newDate)
@@ -59,6 +66,7 @@ class MyDaemon(Daemon.Daemon):
                             logging.warning("failed to set date : "+newDate)
                         else:
                             timeSet = True
+                    logging.info("datetime : "+str(utcdatetime))
                     
             except Exception as ex:
                 logging.exception("manage data Exception : "+str(ex))
