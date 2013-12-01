@@ -1,0 +1,10 @@
+-behaviour of the dumpd 
+    without pyro4 installed
+    with pyro4 installed but without the shared object
+    
+-add a dictionnary of uid/user
+-add a list of gps lines
+-add the xml management 
+-move log in /var/log
+-move dump into ~/dump/
+-faire un setup.py

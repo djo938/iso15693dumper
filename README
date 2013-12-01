@@ -1,0 +1,19 @@
+DEPENDENCIES:
+    -proxnroll RFID reader (or adapt the file dumpd.py with reader specific instruction)
+    IF GPS SUPPORT WANTED:    
+        -Pyro4 : https://pypi.python.org/pypi/Pyro4
+        -an usb gps antena compatible with gpsd
+    
+INSTALLATION:
+    -copy the file Daemon.py in /usr/local/lib/python2.7/dist-packages/daemon/
+    -copy the files into /usr/bin/ or anywhere else
+    -copy these lines at the end of the file /etc/rc.local:
+        IF GPS SUPPORT WANTED:
+            python -m Pyro4.naming &
+            python /usr/bin/datasharingd.py start
+            python /usr/bin/gpsclid.py start
+            python /usr/bin/dumpd.py start
+
+        WITHOUT GPS SUPPORT
+            python /usr/sbin/dumpd.py start
+        
