@@ -1,5 +1,9 @@
+These scripts allow to transform a raspberry pi and a proxnroll reader in a ISO15693 reader. 
+
+Hint: an extra battery supply for mobile phone could transform all of this into a mobile ISO15693 reader.  The battery must be able to produce 1A/5v on its USB port.
+
 DEPENDENCIES:
-    -proxnroll RFID reader (or adapt the file dumpd.py with reader specific instruction)
+    -proxnroll RFID reader (or adapt the file dumpd.py with reader specific instructions)
     IF GPS SUPPORT WANTED:    
         -Pyro4 : https://pypi.python.org/pypi/Pyro4
         -an usb gps antena compatible with gpsd
