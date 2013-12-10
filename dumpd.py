@@ -37,7 +37,7 @@ def errorBeep(con,code):
     con.transmit( [0xFF, 0xF0, 0x00, 0x00,0x03,0x1C,0x00,duration3,0x00] )
 
 
-def dumpSkipass(con, currentDump, path):
+def dumpSkipass(con, currentDump):
     #first beep
     con.transmit( [0xff,0xf0,0x0,0x0,0x3,0x1c,0x0,0x82,0x0])
 
@@ -186,7 +186,7 @@ class MyDaemon(Daemon.Daemon):
                 
                 ## dump the tag ##
                 try:
-                    dumpSkipass(cardservice.connection, gpsProxy,MAINREP, self.localid)
+                    dumpSkipass(cardservice.connection, currentDump)
                 except Exception as e:
                     logging.exception("save dump exception : "+str(e))
                 
@@ -202,9 +202,9 @@ class MyDaemon(Daemon.Daemon):
                 fileName = path+"dump_"+uid+"_"+str(nextDumpID)+"_"+str(dtime).replace(" ","_").replace(":","_").replace(".","_")+".txt"
                 logging.info("dump file name : "+fileName)
                 if uid in owners:
-                    currentDump.getOwner(owners[uid])
+                    currentDump.setOwner(owners[uid])
                 else:
-                    currentDump.getOwner("unknown")
+                    currentDump.setOwner("unknown")
                 
                 ## save the dump ##
                 try:
