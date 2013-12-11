@@ -4,7 +4,7 @@ import logging, os, sys, time, datetime
 from pydaemon import Daemon, getLogNextId
 import Pyro4
 from pysharegps import sharedGpsClient
-from dumpformat import dump, dumpManager, byteListToString, saveDump
+from dumpformat import dump, dumpManager, byteListToString, saveDump, DATAGROUPFLAG_LOCKED
 from data import owners
 
 MAINREP = "/root/data/dump/"
@@ -111,17 +111,14 @@ def dumpSkipass(con, currentDump):
             currentDataGroup.addDataSector(i, data)
             break
 
-        #new data available
-        currentDataGroup.addDataSector(i, data[1:])
+        #add data
+        currentDataGroup.addDataSector(i, data[1:], attr)
+        
+        #compute attribute
         if   data[0] == 0x00:
-            currentDataGroup.addMisc(i, "Unlocked") #XXX bof bof de mettre ça dans le misc
-            #f.write("sector "+sect+": "+byteListToString(data[1:],":")+" (Unlocked)\n")
+            currentDataGroup.setSectorAttribute(i, DATAGROUPFLAG_LOCKED, False)
         elif data[0] == 0x01:
-            currentDataGroup.addMisc(i, "Locked") #XXX bof bof de mettre ça dans le misc
-            #f.write("sector "+sect+": "+byteListToString(data[1:],":")+" (Locked)\n")
-        else:
-            currentDataGroup.addMisc(i, "Unknow "+str(data[0])) #XXX bof bof de mettre ça dans le misc
-            #f.write("sector "+sect+": "+byteListToString(data,":")+"\n")
+            currentDataGroup.setSectorAttribute(i, DATAGROUPFLAG_LOCKED, True)
 
     #BEEP BEEP BEEEP
     errorBeep(con,0)
