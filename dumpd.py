@@ -1,11 +1,22 @@
 #!/usr/bin/python
 
+#built-in import
 import logging, os, sys, time, datetime
-from pydaemon import Daemon, getLogNextId
-import Pyro4
-from pysharegps import sharedGpsClient
+
+#local import
+from data import owners 
+
+#https://github.com/djo938/ import
+from pydaemon import Daemon, getLogNextId 
 from dumpformat import dump, dumpManager, byteListToString, saveDump, DATAGROUPFLAG_LOCKED
-from data import owners
+
+#the dumper is able to work without gps support
+pysharegpsloaded = False
+try:
+    from pysharegps import sharedGpsClient
+    pysharegpsloaded = True
+except ImportError:
+    pass
 
 MAINREP = "/root/data/dump/"
 SHORT_DURATION = 0x64
@@ -38,6 +49,8 @@ def errorBeep(con,code):
 
 
 def dumpSkipass(con, currentDump):
+    currentDump.setCommunicationStandard("ISO15693")
+
     #first beep
     con.transmit( [0xff,0xf0,0x0,0x0,0x3,0x1c,0x0,0x82,0x0])
 
@@ -125,8 +138,17 @@ def dumpSkipass(con, currentDump):
  
 class MyDaemon(Daemon.Daemon):
     def run(self):
-        #init gpsProxy
-        gpsProxy = sharedGpsClient()
+        ### INIT GPS SUPPORT ### 
+        if pysharegpsloaded:
+            logging.info("gps support enabling...")
+            gpsProxy = sharedGpsClient()
+            if gpsProxy.isInit():
+                logging.info("gps support enabled")
+            else:
+                logging.info("gps support not enabled. retry later.")
+        else:
+            logging.warning("gps support not installed")
+            gpsProxy = None
         
         ### INIT SMARTCARD ###
         
@@ -163,64 +185,92 @@ class MyDaemon(Daemon.Daemon):
                 continue
             
             logging.info("new card")
+            currentDump = None
+            fileName = None
             try:
-                cardservice.connection.connect()
-                
-                ## recolt env info ##
-                currentDump = dump()
-                
-                position = gpsProxy.getPosition()
-                currentDump.setPosition(*position) 
-                currentDump.setAltitude(*gpsProxy.getAltitude())
-                
-                place = gpsProxy.getPlace()
-                if place[4] != None:
-                    currentDump.setLocation(*place)
-                
-                currentDump.setCurrentDatetime()
-                currentDump.setExtraInformation("GpsLogId",gpsProxy.getGpsLogId())
-                currentDump.setExtraInformation("DumpLogId",self.localid)
+                #init dump recording
+                currentDump = dump() #and new dump object
                 
                 ## dump the tag ##
                 try:
-                    dumpSkipass(cardservice.connection, currentDump)
+                    cardservice.connection.connect()#connect to the card
+                    dumpSkipass(cardservice.connection, currentDump)             
+                    cardservice.connection.disconnect()## disconnect dump
+                except CardConnectionException as cce:
+                    logging.exception("CardConnectionException : "+str(cce))
                 except Exception as e:
                     logging.exception("save dump exception : "+str(e))
                 
-                #uid is the minimal information needed to save a dump, if it is not available, not saved
-                if len(currentDump.getUID()) == 0:
-                    logging.warning("empty uid dump, not saved")
-                    continue
+                ## recolt and process env info ##
                 
-                ## build path name
+                #build a first simple file name
                 dtime = datetime.datetime.now()
-                nextDumpID = getLogNextId(path) 
-                uid = currentDump.getUIDString().replace(" ","")
-                fileName = path+"dump_"+uid+"_"+str(nextDumpID)+"_"+str(dtime).replace(" ","_").replace(":","_").replace(".","_")+".txt"
-                logging.info("dump file name : "+fileName)
-                if uid in owners:
-                    currentDump.setOwner(owners[uid])
+                fileName = str(dtime).replace(" ","_").replace(":","_").replace(".","_")+".txt"
+
+                currentDump.setCurrentDatetime()
+                currentDump.setExtraInformation("DumpProcessLogId",self.localid)
+                nextDumpID = getLogNextId(path)
+                fileName = str(nextDumpID)+"_"+fileName
+                currentDump.setExtraInformation("DumpFileId",nextDumpID)
+                logging.info("DumpFileId : "+str(nextDumpID))
+                
+                ## UID management ##
+                    #uid is the minimal information needed to save a dump, if it is not available, not saved
+                        #a tag has always an uid, if it is not set, the connection had been broke before to read it
+                
+                uid = None
+                if len(currentDump.getUID()) == 0:
+                    logging.warning("empty uid")
                 else:
-                    currentDump.setOwner("unknown")
-                
-                ## save the dump ##
-                try:
-                    saveDump(currentDump, fileName)
-                except Exception as e:
-                    logging.exception("save dump exception : "+str(e))
-                
-                ## notify dump event to gps daemon ##
-                gpsProxy.addPointOfInterest(position[0], position[1], uid, "dump of "+uid+" at "+dtime.isoformat()+" (file key ="+str(nextDumpID)+")")
-                
-                ## disconnect dump
-                cardservice.connection.disconnect()
-            except CardConnectionException as cce:
-                logging.exception("CardConnectionException : "+str(cce))
+                    # update path name
+                    uid = currentDump.getUIDString().replace(" ","")
+                    fileName = uid+"_"+fileName
+                    
+                    if uid in owners:
+                        currentDump.setOwner(owners[uid])
+                    else:
+                        currentDump.setOwner("unknown")
+                        logging.warning("uid not in the owner list")
+                    
+                    logging.info("dump uid: "+uid)
+                    
+                ## gps management ##
+                if gpsProxy != None: #is there gps support ?
+                    if gpsProxy.isInit():
+                        position = gpsProxy.getPosition()
+                        currentDump.setPosition(*position) 
+                        currentDump.setAltitude(*gpsProxy.getAltitude())
+                        
+                        place = gpsProxy.getPlace()
+                        if place[4] != None:
+                            currentDump.setLocation(*place)
+                        
+                        currentDump.setExtraInformation("GpsLogId",gpsProxy.getGpsLogId())
+                        if uid != None:
+                            gpsProxy.addPointOfInterest(position[0], position[1], uid, "dump of "+uid+" at "+dtime.isoformat()+" (file key ="+str(nextDumpID)+")")
+                    else:
+                        currentDump.setExtraInformation("gps","gps support does not work")
+                        logging.warning("need to re init pyro")
+                        gpsProxy.reInit()
+                else:
+                    currentDump.setExtraInformation("gps","gps support is not supported"
             except Exception as ex:
                 logging.exception("dump exception : "+str(ex))
+                
                 if self.debug:
                     exit()
-                time.sleep(2)
+                time.sleep(2) 
+                #wait two secs to allow the system to stabilyse if the environment is not ready
+                #and also to prevent a log rush if the problem is still present at the next iteration
+            finally: ## save the dump ##
+                
+                if currentDump == None or fileName == None:
+                    logging.critical("Can't save the dump, currentDump or fileName is None")
+                else:
+                    try:
+                        saveDump(currentDump, path+"dump_"+fileName)
+                    except Exception as e:
+                        logging.exception("save dump exception : "+str(e))
             
         ###
         
