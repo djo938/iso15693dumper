@@ -10,6 +10,7 @@ from data import owners
 from pydaemon import Daemon, getLogNextId 
 from dumpformat import dump, dumpManager, byteListToString, saveDump, DATAGROUPFLAG_LOCKED
 
+
 #the dumper is able to work without gps support
 pysharegpsloaded = False
 try:
@@ -88,8 +89,25 @@ def dumpSkipass(con, currentDump):
     
     currentDataGroup = currentDump.getDataGroup()
     #prepare read data instruction
+    #TODO check uid_type
+    #TODO adapt the code with 4.5.3 page 83 of the proxnroll reference developer guide.
+        #also try with the read binary, it will transform this into a universal dumper o.O
+        #try in simple process before
+    
     if uid_type == 0xE01604 or uid_type == 0xE01694:
         # MultiReadBloc
+            #class : 0xff
+            #ins   : 0xfe : encapsulate (proxnroll)
+            #arg1  : 0x04 : send frame "as is" using iso15693
+            #arg2  : 0x0b : timeout 1 sec
+            #data length : 0x0c = 12
+                #TODO check length type (if uid has various size)
+            #data  : 0x60 0x23 uid 0x00 0x00
+                #0x60 : ??
+                #0x23 : Read Multiple Blocks 
+                #uid
+                #0x00 : block to read
+                #0x00 : number of block to read
         ins_prefix = [0xFF, 0xFE, 0x04, 0x0B, 0X0C, 0x60, 0x23]
         ins_prefix.extend(uid)
         ins_prefix.extend([0x00, 0x00])
@@ -97,6 +115,17 @@ def dumpSkipass(con, currentDump):
         currentDump.setExtraInformation("readType", "MULTI READ")
     else:
         #single read bloc
+            #class : 0xff
+            #ins   : 0xfe : encapsulate (proxnroll)
+            #arg1  : 0x04 : send frame "as is" using iso15693
+            #arg2  : 0x0b : timeout 1 sec
+            #data length : 0x0b = 11
+                #TODO check length type (if uid has various size)
+            #data  : 0x60 0x20 uid 0x00
+                #0x60 : ??
+                #0x20 : Read Single Block 
+                #uid
+                #0x00 : block to read
         ins_prefix = [0xFF, 0xFE, 0x04, 0x0B, 0X0B, 0x60, 0x20]
         ins_prefix.extend(uid)
         ins_prefix.append(0x00)
@@ -104,9 +133,15 @@ def dumpSkipass(con, currentDump):
         currentDump.setExtraInformation("readType", "SINGLE READ")
 
     #read all block
-    for i in rangeToRead:
+    for i in range(0,0xffff):
         ins_prefix[index_to_index] = i
         data, sw1, sw2 = con.transmit(ins_prefix)
+
+        #TODO check status word signification
+            #http://www.springcard.com/fr/download/find/file/pmd841p 
+                #page 13 : 2.1.2 Status words returned by the embedded APDU interpreter
+                #page 38 : encapsulate error
+                #page 86 : chapter 5, error if sw1 == 0x6f
 
         #end of stream?
         if (sw1 == 0x6F and sw2 == 0x2C) or (sw1 == 0x6F and sw2 == 0x27):
@@ -136,7 +171,7 @@ def dumpSkipass(con, currentDump):
     #BEEP BEEP BEEEP
     errorBeep(con,0)
  
-class MyDaemon(Daemon.Daemon):
+class MyDaemon(Daemon):
     def run(self):
         ### INIT GPS SUPPORT ### 
         if pysharegpsloaded:
@@ -209,7 +244,7 @@ class MyDaemon(Daemon.Daemon):
 
                 currentDump.setCurrentDatetime()
                 currentDump.setExtraInformation("DumpProcessLogId",self.localid)
-                nextDumpID = getLogNextId(path)
+                nextDumpID = getLogNextId(MAINREP)
                 fileName = str(nextDumpID)+"_"+fileName
                 currentDump.setExtraInformation("DumpFileId",nextDumpID)
                 logging.info("DumpFileId : "+str(nextDumpID))
@@ -237,23 +272,26 @@ class MyDaemon(Daemon.Daemon):
                 ## gps management ##
                 if gpsProxy != None: #is there gps support ?
                     if gpsProxy.isInit():
-                        position = gpsProxy.getPosition()
+                        position = gpsProxy.getSharedObject().getPosition()
+                        print position
                         currentDump.setPosition(*position) 
-                        currentDump.setAltitude(*gpsProxy.getAltitude())
+                        print gpsProxy.getSharedObject().getAltitude()
+                        currentDump.setAltitude(*gpsProxy.getSharedObject().getAltitude())
                         
-                        place = gpsProxy.getPlace()
+                        place = gpsProxy.getSharedObject().getPlace()
                         if place[4] != None:
                             currentDump.setLocation(*place)
                         
-                        currentDump.setExtraInformation("GpsLogId",gpsProxy.getGpsLogId())
+                        currentDump.setExtraInformation("GpsLogId",gpsProxy.getSharedObject().getGpsLogId())
+                        
                         if uid != None:
-                            gpsProxy.addPointOfInterest(position[0], position[1], uid, "dump of "+uid+" at "+dtime.isoformat()+" (file key ="+str(nextDumpID)+")")
+                            gpsProxy.getSharedObject().addPointOfInterest(position[0], position[1], uid, "dump of "+uid+" at "+dtime.isoformat()+" (file key ="+str(nextDumpID)+")")
                     else:
                         currentDump.setExtraInformation("gps","gps support does not work")
                         logging.warning("need to re init pyro")
                         gpsProxy.reInit()
                 else:
-                    currentDump.setExtraInformation("gps","gps support is not supported"
+                    currentDump.setExtraInformation("gps","gps support is not supported")
             except Exception as ex:
                 logging.exception("dump exception : "+str(ex))
                 
@@ -264,18 +302,19 @@ class MyDaemon(Daemon.Daemon):
                 #and also to prevent a log rush if the problem is still present at the next iteration
             finally: ## save the dump ##
                 
+                #XXX TODO FIXME save the file corrupts the file system... XXX
                 if currentDump == None or fileName == None:
                     logging.critical("Can't save the dump, currentDump or fileName is None")
                 else:
                     try:
-                        saveDump(currentDump, path+"dump_"+fileName)
+                        saveDump(currentDump, MAINREP+"dump_"+fileName)
                     except Exception as e:
                         logging.exception("save dump exception : "+str(e))
             
         ###
         
 if __name__ == "__main__":
-    gpsclid = gpsSharing("iso15693dumper")
-    gpsclid.main()
+    daem = MyDaemon("iso15693dumper")
+    daem.main()
 
     
