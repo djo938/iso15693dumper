@@ -22,6 +22,61 @@ except ImportError:
 MAINREP = "/root/data/dump/"
 SHORT_DURATION = 0x64
 LONG_DURATION  = 0xff
+DUMPTYPE = 0 #(0=any, 1=encapsluated_iso15693, 2=encapsluated_iso15693WithUID)
+    #TODO test 1
+
+def getApduAndIndex(uid):
+    #TODO check uid_type
+    #TODO adapt the code with 4.5.3 page 83 of the proxnroll reference developer guide.
+        #also try with the read binary, it will transform this into a universal dumper o.O
+        #try in simple process before
+
+    if DUMPTYPE == 1: #iso15693 encapsulated without UID
+        if uid_type == 0xE01604 or uid_type == 0xE01694:
+            return "ISO15693",[0xff, 0xfe, 0x05, 0x00, 0x04, 0x22, 0x23, 0x00, 0x00], 7 #TODO test it
+        else:
+            return "ISO15693",[0xff, 0xfe, 0x05, 0x00, 0x03, 0x22, 0x20, 0x00], 7 #TODO test it
+        
+    else DUMPTYPE == 2: #iso15693 encapsulated with UID
+        uid.reverse()
+        ins_prefix = []
+        index_to_index = 0
+        if uid_type == 0xE01604 or uid_type == 0xE01694:
+            # MultiReadBloc
+                #class : 0xff
+                #ins   : 0xfe : encapsulate (proxnroll)
+                #arg1  : 0x04 : send frame "as is" using iso15693
+                #arg2  : 0x0b : timeout 1 sec
+                #data length : 0x0c = 12
+                #data  : 0x60 0x23 uid 0x00 0x00
+                    #0x60 : ??
+                    #0x23 : Read Multiple Blocks 
+                    #uid
+                    #0x00 : block to read
+                    #0x00 : number of block to read XXX 0? not 1?
+            ins_prefix = [0xFF, 0xFE, 0x04, 0x0B, len(uid)+4, 0x60, 0x23]
+            ins_prefix.extend(uid)
+            ins_prefix.extend([0x00, 0x00])
+            index_to_index = len(ins_prefix) - 2
+        else:
+            #single read bloc
+                #class : 0xff
+                #ins   : 0xfe : encapsulate (proxnroll)
+                #arg1  : 0x04 : send frame "as is" using iso15693
+                #arg2  : 0x0b : timeout 1 sec
+                #data length : 0x0b = 11
+                #data  : 0x60 0x20 uid 0x00
+                    #0x60 : ??
+                    #0x20 : Read Single Block 
+                    #uid
+                    #0x00 : block to read
+            ins_prefix = [0xFF, 0xFE, 0x04, 0x0B, len(uid)+3, 0x60, 0x20]
+            ins_prefix.extend(uid)
+            ins_prefix.append(0x00)
+            index_to_index = len(ins_prefix) - 1
+        return "ISO15693",ins_prefix, index_to_index
+    else: #any
+        return "ANY",[0xff, 0xb0, 0x00, 0x00, 0x00], 3
 
 def errorBeep(con,code):
     duration1 = duration2 = duration3 = SHORT_DURATION
@@ -50,7 +105,7 @@ def errorBeep(con,code):
 
 
 def dumpSkipass(con, currentDump):
-    currentDump.setCommunicationStandard("ISO15693")
+    
 
     #first beep
     con.transmit( [0xff,0xf0,0x0,0x0,0x3,0x1c,0x0,0x82,0x0])
@@ -72,8 +127,6 @@ def dumpSkipass(con, currentDump):
     for i in range(0,len(uid)):
         uid_dec += (uid[len(uid)-i-1]<<(i*8))
 
-    uid.reverse()
-
     #read pix
     data, sw1, sw2 = con.transmit( [0xFF, 0xCA, 0xF1, 0x00, 0x00])
 
@@ -89,49 +142,9 @@ def dumpSkipass(con, currentDump):
     
     currentDataGroup = currentDump.getDataGroup()
     #prepare read data instruction
-    #TODO check uid_type
-    #TODO adapt the code with 4.5.3 page 83 of the proxnroll reference developer guide.
-        #also try with the read binary, it will transform this into a universal dumper o.O
-        #try in simple process before
+    standart, ins_prefix, index_to_index = getApduAndIndex(uid)
+    currentDump.setCommunicationStandard(standart)
     
-    if uid_type == 0xE01604 or uid_type == 0xE01694:
-        # MultiReadBloc
-            #class : 0xff
-            #ins   : 0xfe : encapsulate (proxnroll)
-            #arg1  : 0x04 : send frame "as is" using iso15693
-            #arg2  : 0x0b : timeout 1 sec
-            #data length : 0x0c = 12
-                #TODO check length type (if uid has various size)
-            #data  : 0x60 0x23 uid 0x00 0x00
-                #0x60 : ??
-                #0x23 : Read Multiple Blocks 
-                #uid
-                #0x00 : block to read
-                #0x00 : number of block to read
-        ins_prefix = [0xFF, 0xFE, 0x04, 0x0B, 0X0C, 0x60, 0x23]
-        ins_prefix.extend(uid)
-        ins_prefix.extend([0x00, 0x00])
-        index_to_index = len(ins_prefix) - 2
-        currentDump.setExtraInformation("readType", "MULTI READ")
-    else:
-        #single read bloc
-            #class : 0xff
-            #ins   : 0xfe : encapsulate (proxnroll)
-            #arg1  : 0x04 : send frame "as is" using iso15693
-            #arg2  : 0x0b : timeout 1 sec
-            #data length : 0x0b = 11
-                #TODO check length type (if uid has various size)
-            #data  : 0x60 0x20 uid 0x00
-                #0x60 : ??
-                #0x20 : Read Single Block 
-                #uid
-                #0x00 : block to read
-        ins_prefix = [0xFF, 0xFE, 0x04, 0x0B, 0X0B, 0x60, 0x20]
-        ins_prefix.extend(uid)
-        ins_prefix.append(0x00)
-        index_to_index = len(ins_prefix) - 1
-        currentDump.setExtraInformation("readType", "SINGLE READ")
-
     #read all block
     for i in range(0,0xffff):
         ins_prefix[index_to_index] = i
@@ -160,14 +173,17 @@ def dumpSkipass(con, currentDump):
             break
 
         #add data
-        currentDataGroup.addDataSector(i, data[1:], attr)
+        if len(data) > 4:
+            currentDataGroup.addDataSector(i, data[1:])
+            
+            #compute attribute
+            if   data[0] == 0x00:
+                currentDataGroup.setSectorAttribute(i, DATAGROUPFLAG_LOCKED, False)
+            elif data[0] == 0x01:
+                currentDataGroup.setSectorAttribute(i, DATAGROUPFLAG_LOCKED, True)
+        else:
+            currentDataGroup.addDataSector(i, data)
         
-        #compute attribute
-        if   data[0] == 0x00:
-            currentDataGroup.setSectorAttribute(i, DATAGROUPFLAG_LOCKED, False)
-        elif data[0] == 0x01:
-            currentDataGroup.setSectorAttribute(i, DATAGROUPFLAG_LOCKED, True)
-
     #BEEP BEEP BEEEP
     errorBeep(con,0)
  
@@ -301,8 +317,6 @@ class MyDaemon(Daemon):
                 #wait two secs to allow the system to stabilyse if the environment is not ready
                 #and also to prevent a log rush if the problem is still present at the next iteration
             finally: ## save the dump ##
-                
-                #XXX TODO FIXME save the file corrupts the file system... XXX
                 if currentDump == None or fileName == None:
                     logging.critical("Can't save the dump, currentDump or fileName is None")
                 else:
